@@ -1,6 +1,7 @@
 package mbserver
 
 import (
+	"encoding/binary"
 	"io"
 	"log"
 	"net"
@@ -21,18 +22,35 @@ func (s *Server) accept(listen net.Listener) error {
 		go func(conn net.Conn) {
 			defer conn.Close()
 
+			header := make([]byte, 8)
+
 			for {
-				packet := make([]byte, 512)
-				bytesRead, err := conn.Read(packet)
+				n, err := conn.Read(header)
 				if err != nil {
 					if err != io.EOF {
 						log.Printf("read error %v\n", err)
 					}
 					return
 				}
+				if n != 8 {
+					log.Printf("malformed header, expect length:8, got length:%d, data:%v\n", n, header)
+					return
+				}
+				len := int(binary.BigEndian.Uint16(header[4:6]))
+				packet := make([]byte, 8+len-2)
+				copy(packet, header)
+				n, err = conn.Read(packet[8:])
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("read error %v\n", err)
+					}
+					return
+				}
+				if n != len-2 {
+					log.Printf("malformed data, expect length:%d, got length:%d, data:%v\n", n, len-2, packet)
+					return
+				}
 				// Set the length of the packet to the number of read bytes.
-				packet = packet[:bytesRead]
-
 				frame, err := NewTCPFrame(packet)
 				if err != nil {
 					log.Printf("bad packet error %v\n", err)
