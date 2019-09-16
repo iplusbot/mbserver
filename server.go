@@ -4,6 +4,7 @@ package mbserver
 import (
 	"io"
 	"net"
+	"sync"
 
 	"github.com/goburrow/serial"
 )
@@ -15,6 +16,8 @@ type Server struct {
 	listeners        []net.Listener
 	ports            []serial.Port
 	requestChan      chan *Request
+	exitChan         chan struct{}
+	once             sync.Once
 	function         [256](func(*Server, Framer) ([]byte, *Exception))
 	DiscreteInputs   []byte
 	Coils            []byte
@@ -49,6 +52,7 @@ func NewServer() *Server {
 	s.function[16] = WriteHoldingRegisters
 
 	s.requestChan = make(chan *Request)
+	s.exitChan = make(chan struct{})
 	go s.handler()
 
 	return s
@@ -83,9 +87,13 @@ func (s *Server) handle(request *Request) Framer {
 // All requests are handled synchronously to prevent modbus memory corruption.
 func (s *Server) handler() {
 	for {
-		request := <-s.requestChan
-		response := s.handle(request)
-		request.conn.Write(response.Bytes())
+		select {
+		case <-s.exitChan:
+			return
+		case request := <-s.requestChan:
+			response := s.handle(request)
+			request.conn.Write(response.Bytes())
+		}
 	}
 }
 
@@ -97,4 +105,5 @@ func (s *Server) Close() {
 	for _, port := range s.ports {
 		port.Close()
 	}
+	s.once.Do(func() { close(s.exitChan) })
 }
