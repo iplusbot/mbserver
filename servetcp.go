@@ -59,7 +59,11 @@ func (s *Server) accept(listen net.Listener) error {
 
 				request := &Request{conn, frame}
 
-				s.requestChan <- request
+				select {
+				case <-s.exitChan:
+					return
+				case s.requestChan <- request:
+				}
 			}
 		}(conn)
 	}

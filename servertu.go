@@ -44,7 +44,11 @@ func (s *Server) acceptSerialRequests(port serial.Port) {
 
 			request := &Request{port, frame}
 
-			s.requestChan <- request
+			select {
+			case <-s.exitChan:
+				return
+			case s.requestChan <- request:
+			}
 		}
 	}
 }
